@@ -1,0 +1,128 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vtg
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vtg-prometheus
+  namespace: default
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/metrics
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources:
+  - configmaps
+  verbs: ["get"]
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vtg-prometheus-default
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vtg-prometheus
+subjects:
+- kind: ServiceAccount
+  name: vtg
+  namespace: default
+---
+apiVersion: v1
+data:
+  alertmanager.yml: Z2xvYmFsOgogIHNtdHBfc21hcnRob3N0OiAnbG9jYWxob3N0OjI1JwogIHNtdHBfZnJvbTogJ3lvdXJhZGRyZXNzQGV4YW1wbGUub3JnJwpyb3V0ZToKICByZWNlaXZlcjogc2xhY2sKcmVjZWl2ZXJzOgogIC0gbmFtZTogc2xhY2sKICAgIHNsYWNrX2NvbmZpZ3M6CiAgICAtIHNlbmRfcmVzb2x2ZWQ6IGZhbHNlCiAgICAgIGh0dHBfY29uZmlnOgogICAgICAgIGZvbGxvd19yZWRpcmVjdHM6IHRydWUKICAgICAgYXBpX3VybDogaHR0cHM6Ly9ob29rcy5zbGFjay5jb20vc2VydmljZXMvVDAyRzBQSFJIL0IwMTVONTFDRUQ4Lzc4YWtDdkV2RUJjaXBzY3ZSMUg2OGxtWAo=
+kind: Secret
+metadata:
+  name: alertmanager-yml
+  namespace: default 
+---
+# Testing pod
+# configuration of alertmanager is done by mounting secret alertmanager-yml above
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vtgos
+  namespace: default
+  labels:
+    pmapps: installed
+spec:
+  serviceAccountName: vtg
+  containers:
+  - name: main
+    image: vtg242/vtgos
+    imagePullPolicy: IfNotPresent
+    command: ['/bin/bash']
+    args: [
+           '-c',
+           'i=0; while true; do echo "$i: $(date)";ps aux | egrep "prom.*|alert.*|blackbox.*|push.*|grafana.*|loki.*|logcli.*|hello.*" | grep -v grep; i=$((i+1)); sleep 60; done'
+          ]
+    ports:
+    - name: prometheus
+      containerPort: 9090
+    - name: alertmanager
+      containerPort: 9093
+    - name: pushgateway
+      containerPort: 9091
+    - name: blackbox
+      containerPort: 9115
+    volumeMounts:
+    - name: am-config
+      mountPath: /opt/alertmanager-0.23.0.linux-amd64/alertmanager.yml
+      subPath: alertmanager.yml
+      readOnly: false
+  volumes:
+  - name: am-config
+    secret:
+      secretName: alertmanager-yml
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: blackbox
+  namespace: default
+  labels:
+    pmapps: installed 
+    team: mon
+spec:
+  selector:
+    pmapps: installed
+  ports:
+  - name: http
+    port: 80
+    targetPort: blackbox
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: vtgos
+  namespace: default
+  labels:
+    pmapps: installed 
+    team: mon
+spec:
+  selector:
+    pmapps: installed
+  ports:
+  - name: am
+    port: 9093
+    targetPort: alertmanager
+  - name: pm
+    port: 9090
+    targetPort: prometheus
