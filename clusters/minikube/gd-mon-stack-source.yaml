@@ -5,7 +5,7 @@ metadata:
   name: kmons
   namespace: flux-system
 spec:
-  interval: 30s
+  interval: 60s
   ref:
     branch: main
   url: https://github.com/VtG242/KMONS
